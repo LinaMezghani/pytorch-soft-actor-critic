@@ -8,6 +8,8 @@ from sac import SAC
 from torch.utils.tensorboard import SummaryWriter
 from replay_memory import ReplayMemory
 
+from envs import make_sawyer_push_env
+
 parser = argparse.ArgumentParser(description='PyTorch Soft Actor-Critic Args')
 parser.add_argument('--env-name', default="HalfCheetah-v2",
                     help='Mujoco Gym environment (default: HalfCheetah-v2)')
@@ -46,17 +48,23 @@ parser.add_argument('--cuda', action="store_true",
                     help='run on CUDA (default: False)')
 args = parser.parse_args()
 
+def process_obs(obs):
+    return np.concatenate((obs['observation'], obs['desired_goal']))
+
 # Environment
 # env = NormalizedActions(gym.make(args.env_name))
-env = gym.make(args.env_name)
+
+#env = gym.make(args.env_name)
+env = make_sawyer_push_env()
 env.seed(args.seed)
 env.action_space.seed(args.seed)
+
 
 torch.manual_seed(args.seed)
 np.random.seed(args.seed)
 
 # Agent
-agent = SAC(env.observation_space.shape[0], env.action_space, args)
+agent = SAC(env.observation_space['observation'].shape[0] * 2, env.action_space, args)
 
 #Tesnorboard
 writer = SummaryWriter('runs/{}_SAC_{}_{}_{}'.format(datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S"), args.env_name,
@@ -79,7 +87,7 @@ for i_episode in itertools.count(1):
         if args.start_steps > total_numsteps:
             action = env.action_space.sample()  # Sample random action
         else:
-            action = agent.select_action(state)  # Sample action from policy
+            action = agent.select_action(process_obs(state))  # Sample action from policy
 
         if len(memory) > args.batch_size:
             # Number of updates per step in environment
@@ -94,7 +102,7 @@ for i_episode in itertools.count(1):
                 writer.add_scalar('entropy_temprature/alpha', alpha, updates)
                 updates += 1
 
-        next_state, reward, done, _ = env.step(action) # Step
+        next_state, reward, done, info = env.step(action) # Step
         episode_steps += 1
         total_numsteps += 1
         episode_reward += reward
@@ -103,40 +111,47 @@ for i_episode in itertools.count(1):
         # (https://github.com/openai/spinningup/blob/master/spinup/algos/sac/sac.py)
         mask = 1 if episode_steps == env._max_episode_steps else float(not done)
 
-        memory.push(state, action, reward, next_state, mask) # Append transition to memory
+        memory.push(process_obs(state), action, reward,
+                process_obs(next_state), mask) # Append transition to memory
 
         state = next_state
 
     if total_numsteps > args.num_steps:
         break
 
-    writer.add_scalar('reward/train', episode_reward, i_episode)
-    print("Episode: {}, total numsteps: {}, episode steps: {}, reward: {}".format(i_episode, total_numsteps, episode_steps, round(episode_reward, 2)))
+    writer.add_scalar('train/reward', episode_reward, i_episode)
+    writer.add_scalar('train/puck_dist', info['puck_distance'], i_episode)
+    print("Episode: {}, total numsteps: {}, episode steps: {}, reward: {}, puck_dist: {}".format(
+        i_episode, total_numsteps, episode_steps, round(episode_reward, 2),
+        round(info['puck_distance'], 2)
+    ))
 
     if i_episode % 10 == 0 and args.eval is True:
         avg_reward = 0.
+        avg_puck_dist = 0.
         episodes = 10
         for _  in range(episodes):
             state = env.reset()
             episode_reward = 0
             done = False
             while not done:
-                action = agent.select_action(state, evaluate=True)
+                action = agent.select_action(process_obs(state), evaluate=True)
 
-                next_state, reward, done, _ = env.step(action)
+                next_state, reward, done, info = env.step(action)
                 episode_reward += reward
-
 
                 state = next_state
             avg_reward += episode_reward
+            avg_puck_dist += info['puck_distance']
         avg_reward /= episodes
+        avg_puck_dist /= episodes
 
-
-        writer.add_scalar('avg_reward/test', avg_reward, i_episode)
+        writer.add_scalar('test/avg_reward', avg_reward, i_episode)
+        writer.add_scalar('test/avg_puck-dist', avg_puck_dist, i_episode)
 
         print("----------------------------------------")
-        print("Test Episodes: {}, Avg. Reward: {}".format(episodes, round(avg_reward, 2)))
+        print("Test Episodes: {}, Avg. Reward: {}, Avg. Puck Dist: {}".format(
+            episodes, round(avg_reward, 2), round(avg_puck_dist, 2)))
         print("----------------------------------------")
 
 env.close()
-
