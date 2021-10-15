@@ -41,13 +41,18 @@ def main(args, exp_name):
     # Training Loop
     total_numsteps = 0
     updates = 0
+    total_loss = {x: 0. for x in ['c1', 'c2', 'policy', 'entropy']}
+    total_episode_reward = 0
+    total_puck_dist = 0
+    prev_log_step = 0
+    num_episodes = 0
 
     for i_episode in itertools.count(1):
-        episode_reward = 0
+        loss = {}
         episode_steps = 0
+        episode_reward = 0
         done = False
         state = env.reset()
-
         while not done:
             if args.start_steps > total_numsteps:
                 action = env.action_space.sample()  # Sample random action
@@ -58,18 +63,14 @@ def main(args, exp_name):
                 # Number of updates per step in environment
                 for i in range(args.updates_per_step):
                     # Update parameters of all the networks
-                    critic_1_loss, critic_2_loss, policy_loss, ent_loss, alpha = agent.update_parameters(memory, args.batch_size, updates)
-
-                    writer.add_scalar('loss/critic_1', critic_1_loss, updates)
-                    writer.add_scalar('loss/critic_2', critic_2_loss, updates)
-                    writer.add_scalar('loss/policy', policy_loss, updates)
-                    writer.add_scalar('loss/entropy_loss', ent_loss, updates)
-                    writer.add_scalar('entropy_temprature/alpha', alpha, updates)
+                    loss['c1'], loss['c2'], loss['policy'], loss['entropy'], _ = agent.update_parameters(memory,
+                                    args.batch_size, updates)
+                    for k in loss:
+                        total_loss[k] += loss[k]
                     updates += 1
 
             next_state, reward, done, info = env.step(action) # Step
             episode_steps += 1
-            total_numsteps += 1
             episode_reward += reward
 
             # Ignore the "done" signal if it comes from hitting the time horizon.
@@ -81,15 +82,33 @@ def main(args, exp_name):
 
             state = next_state
 
+        total_numsteps += episode_steps
+        total_episode_reward += episode_reward
+        total_puck_dist += info['puck_distance']
+        num_episodes += 1
+
         if total_numsteps > args.num_steps:
             break
 
-        writer.add_scalar('train/reward', episode_reward, i_episode)
-        writer.add_scalar('train/puck_dist', info['puck_distance'], i_episode)
         print("Episode: {}, total numsteps: {}, episode steps: {}, reward: {}, puck_dist: {}".format(
             i_episode, total_numsteps, episode_steps, round(episode_reward, 2),
             round(info['puck_distance'], 2)
         ))
+
+        if total_numsteps - prev_log_step > args.log_interval:
+            writer.add_scalar('train/reward', total_episode_reward/num_episodes,
+                    total_numsteps)
+            writer.add_scalar('train/puck_dist', total_puck_dist/num_episodes,
+                    total_numsteps)
+            if updates > 0:
+                for k, v in total_loss.items():
+                    writer.add_scalar(f'loss/{k}', v/updates, total_numsteps)
+            total_episode_reward = 0
+            total_puck_dist = 0
+            num_episodes = 0
+            total_loss = {x: 0. for x in total_loss}
+            prev_log_step = total_numsteps
+
 
         if i_episode % args.eval_interval == 0 and args.eval is True:
             avg_reward = 0.
@@ -110,8 +129,9 @@ def main(args, exp_name):
             avg_reward /= args.num_eval_episodes
             avg_puck_dist /= args.num_eval_episodes
 
-            writer.add_scalar('test/avg_reward', avg_reward, i_episode)
-            writer.add_scalar('test/avg_puck-dist', avg_puck_dist, i_episode)
+            writer.add_scalar('test/avg_reward', avg_reward, total_numsteps)
+            writer.add_scalar('test/avg_puck-dist', avg_puck_dist,
+                    total_numsteps)
 
             print("----------------------------------------")
             print("Test Episodes: {}, Avg. Reward: {}, Avg. Puck Dist: {}".format(
@@ -131,6 +151,8 @@ if __name__ == "__main__":
                         help='Evaluates a policy every eval-interval episodes (default: True)')
     parser.add_argument('--eval-interval', type=int, default=100, metavar='N',
                         help='perform eval every x episodes (default: 100)')
+    parser.add_argument('--log-interval', type=int, default=100, metavar='N',
+                        help='log every x steps (default: 100)')
     parser.add_argument('--num-eval-episodes', type=int, default=10, metavar='N',
                         help='(default: 10)')
     parser.add_argument('--gamma', type=float, default=0.99, metavar='G',
@@ -139,10 +161,10 @@ if __name__ == "__main__":
                         help='target smoothing coefficient(τ) (default: 0.005)')
     parser.add_argument('--lr', type=float, default=0.0003, metavar='G',
                         help='learning rate (default: 0.0003)')
-    parser.add_argument('--alpha', type=float, default=0.2, metavar='G',
+    parser.add_argument('--alpha', type=float, default=0.05, metavar='G',
                         help='Temperature parameter α determines the relative\
                                 importance of the entropy term against the\
-                                reward (default: 0.2)')
+                                reward (default: 0.05)')
     parser.add_argument('--automatic_entropy_tuning', type=bool, default=False,
             metavar='G', help='Automaically adjust α (default: False)')
     parser.add_argument('--seed', type=int, default=123456, metavar='N',
@@ -159,8 +181,8 @@ if __name__ == "__main__":
                         help='Steps sampling random actions (default: 10000)')
     parser.add_argument('--target_update_interval', type=int, default=1, metavar='N',
                         help='Value target update per no. of updates per step (default: 1)')
-    parser.add_argument('--replay_size', type=int, default=1000000, metavar='N',
-                        help='size of replay buffer (default: 10000000)')
+    parser.add_argument('--replay_size', type=int, default=100000, metavar='N',
+                        help='size of replay buffer (default: 1000000)')
     parser.add_argument('--cuda', action="store_true",
                         help='run on CUDA (default: False)')
     parser.add_argument('--local', action="store_true",
