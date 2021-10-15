@@ -12,12 +12,16 @@ from sac import SAC
 from replay_memory import ReplayMemory
 from envs import make_sawyer_push_env
 
-
+def get_exp_name(args):
+    exp_name = '{}_SAC_{}_{}_{}_{}'.format(datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S"),
+        args.env_name, args.policy,
+        "autotune" if args.automatic_entropy_tuning else "", args.suffix)
+    return exp_name
 
 def process_obs(obs):
     return np.concatenate((obs['observation'], obs['desired_goal']))
 
-def main(args):
+def main(args, exp_name):
     env = make_sawyer_push_env()
     env.seed(args.seed)
     env.action_space.seed(args.seed)
@@ -28,9 +32,8 @@ def main(args):
     # Agent
     agent = SAC(env.observation_space['observation'].shape[0] * 2, env.action_space, args)
 
-    #Tesnorboard
-    writer = SummaryWriter('runs/{}_SAC_{}_{}_{}'.format(datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S"), args.env_name,
-                                                                 args.policy, "autotune" if args.automatic_entropy_tuning else ""))
+    #Tensorboard
+    writer = SummaryWriter(f'/checkpoint/linamezghani/sac_logs/{exp_name}')
 
     # Memory
     memory = ReplayMemory(args.replay_size, args.seed)
@@ -88,11 +91,10 @@ def main(args):
             round(info['puck_distance'], 2)
         ))
 
-        if i_episode % 10 == 0 and args.eval is True:
+        if i_episode % args.eval_interval == 0 and args.eval is True:
             avg_reward = 0.
             avg_puck_dist = 0.
-            episodes = 10
-            for _  in range(episodes):
+            for _  in range(args.num_eval_episodes):
                 state = env.reset()
                 episode_reward = 0
                 done = False
@@ -105,27 +107,32 @@ def main(args):
                     state = next_state
                 avg_reward += episode_reward
                 avg_puck_dist += info['puck_distance']
-            avg_reward /= episodes
-            avg_puck_dist /= episodes
+            avg_reward /= args.num_eval_episodes
+            avg_puck_dist /= args.num_eval_episodes
 
             writer.add_scalar('test/avg_reward', avg_reward, i_episode)
             writer.add_scalar('test/avg_puck-dist', avg_puck_dist, i_episode)
 
             print("----------------------------------------")
             print("Test Episodes: {}, Avg. Reward: {}, Avg. Puck Dist: {}".format(
-                episodes, round(avg_reward, 2), round(avg_puck_dist, 2)))
+                args.num_eval_episodes, round(avg_reward, 2), round(avg_puck_dist, 2)))
             print("----------------------------------------")
 
     env.close()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='PyTorch Soft Actor-Critic Args')
-    parser.add_argument('--env-name', default="HalfCheetah-v2",
-                        help='Mujoco Gym environment (default: HalfCheetah-v2)')
+    parser.add_argument('--env-name', default="SawyerPushNIPSEasy-v0",
+                        help='Mujoco Gym environment (default: SawyerPushNIPSEasy-v0)')
+    parser.add_argument('--suffix', default="", help='exp suffix (default: "")')
     parser.add_argument('--policy', default="Gaussian",
                         help='Policy Type: Gaussian | Deterministic (default: Gaussian)')
     parser.add_argument('--eval', type=bool, default=True,
-                        help='Evaluates a policy a policy every 10 episode (default: True)')
+                        help='Evaluates a policy every eval-interval episodes (default: True)')
+    parser.add_argument('--eval-interval', type=int, default=100, metavar='N',
+                        help='perform eval every x episodes (default: 100)')
+    parser.add_argument('--num-eval-episodes', type=int, default=10, metavar='N',
+                        help='(default: 10)')
     parser.add_argument('--gamma', type=float, default=0.99, metavar='G',
                         help='discount factor for reward (default: 0.99)')
     parser.add_argument('--tau', type=float, default=0.005, metavar='G',
@@ -133,10 +140,11 @@ if __name__ == "__main__":
     parser.add_argument('--lr', type=float, default=0.0003, metavar='G',
                         help='learning rate (default: 0.0003)')
     parser.add_argument('--alpha', type=float, default=0.2, metavar='G',
-                        help='Temperature parameter α determines the relative importance of the entropy\
-                                term against the reward (default: 0.2)')
-    parser.add_argument('--automatic_entropy_tuning', type=bool, default=False, metavar='G',
-                        help='Automaically adjust α (default: False)')
+                        help='Temperature parameter α determines the relative\
+                                importance of the entropy term against the\
+                                reward (default: 0.2)')
+    parser.add_argument('--automatic_entropy_tuning', type=bool, default=False,
+            metavar='G', help='Automaically adjust α (default: False)')
     parser.add_argument('--seed', type=int, default=123456, metavar='N',
                         help='random seed (default: 123456)')
     parser.add_argument('--batch_size', type=int, default=256, metavar='N',
@@ -159,13 +167,16 @@ if __name__ == "__main__":
                         help='run locally (default: False)')
     args = parser.parse_args()
 
+    exp_name = get_exp_name(args)
+    print(exp_name)
+
     if args.local:
-        main(args)
+        main(args, exp_name)
 
     else:
         submitit_log = 'submitit_logs/'
         executor = submitit.AutoExecutor(folder=submitit_log)
         executor.update_parameters(timeout_min=4320, partition="devlab",
                 gpus_per_node=1, name=exp_name)
-        job = executor.submit(learn_model, args)
+        job = executor.submit(main, (args, exp_name,))
         print(job.job_id)
