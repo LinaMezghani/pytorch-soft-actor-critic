@@ -106,6 +106,7 @@ def main(args, exp_name):
             total_episode_reward = 0
             total_puck_dist = 0
             num_episodes = 0
+            updates = 0
             total_loss = {x: 0. for x in total_loss}
             prev_log_step = total_numsteps
 
