@@ -8,10 +8,17 @@ from multiworld.core.image_env import ImageEnv
 from multiworld.envs.mujoco.cameras import sawyer_init_camera_zoomed_in
 
 class MyCustomPush(gym.core.Wrapper):
+    def __init__(self, env):
+        super().__init__(env)
+        self._max_episode_steps = self.env._max_episode_steps
+
     def step(self, action):
         obs, reward, done, info = super().step(action)
         reward = - info['puck_distance']
-        done = info['puck_distance'] < 0.03
+        success = bool(info['puck_distance'] < 0.03)
+        done = done or success
+        info['dist_to_goal'] = info['puck_distance'] if done else 0.
+        info['success'] = success
         return obs, reward, done, info
     
 def make_sawyer_push_env():
@@ -22,6 +29,6 @@ def make_sawyer_push_env():
     presampled_goals = presampled_goals.tolist()
     env = ImageEnv(env, imsize=48, presampled_goals=presampled_goals, 
             init_camera=sawyer_init_camera_zoomed_in, transpose=True)#, run_update_info=False)
-    env = MyCustomPush(env)
     env = TimeLimit(env, max_episode_steps=50)
+    env = MyCustomPush(env)
     return env
