@@ -19,7 +19,7 @@ def get_exp_name(args):
     return exp_name
 
 def process_obs(obs):
-    return np.concatenate((obs['observation'], obs['desired_goal']))
+    return np.stack((obs['observation'], obs['desired_goal']))
 
 def main(args, exp_name):
     env = make_sawyer_push_env()
@@ -30,7 +30,7 @@ def main(args, exp_name):
     np.random.seed(args.seed)
 
     # Agent
-    agent = SAC(env.observation_space['observation'].shape[0] * 2, env.action_space, args)
+    agent = SAC(48, 4, env.action_space, args)
 
     #Tensorboard
     writer = SummaryWriter(f'/checkpoint/linamezghani/sac_logs/{exp_name}')
@@ -178,5 +178,5 @@ if __name__ == "__main__":
         executor = submitit.AutoExecutor(folder=submitit_log)
         executor.update_parameters(timeout_min=4320, partition="devlab",
                 gpus_per_node=1, name=exp_name)
-        job = executor.submit(main, (args, exp_name,))
+        job = executor.submit(main, args, exp_name)
         print(job.job_id)

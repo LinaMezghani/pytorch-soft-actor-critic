@@ -30,10 +30,61 @@ class ValueNetwork(nn.Module):
         x = self.linear3(x)
         return x
 
+class SkewFitHead(nn.Module):
+    def __init__(self, img_size, out_size):
+        super(SkewFitHead, self).__init__()
+        conv_outdim = 3 * 3 * 64
+        modules = [
+                nn.Conv2d(3, 16, (5, 5), stride=3),
+                nn.ReLU(),
+                nn.Conv2d(16, 32, (3, 3), stride=2),
+                nn.ReLU(),
+                nn.Conv2d(32, 64, (3, 3), stride=2),
+                nn.ReLU(),
+                nn.Flatten(),
+                nn.Linear(conv_outdim, out_size),
+        ]
+        self.net = nn.Sequential(*modules)
+
+    def forward(self, state):
+        return self.net(state)
 
 class QNetwork(nn.Module):
-    def __init__(self, num_inputs, num_actions, hidden_dim):
+    def __init__(self, img_size, num_inputs, num_actions, hidden_dim):
         super(QNetwork, self).__init__()
+        self.obs_head = SkewFitHead(img_size, num_inputs)
+        self.goal_head = SkewFitHead(img_size, num_inputs)
+
+        # Q1 architecture
+        self.linear1 = nn.Linear(num_inputs * 2 + num_actions, hidden_dim)
+        self.linear2 = nn.Linear(hidden_dim, hidden_dim)
+        self.linear3 = nn.Linear(hidden_dim, 1)
+
+        # Q2 architecture
+        self.linear4 = nn.Linear(num_inputs * 2 + num_actions, hidden_dim)
+        self.linear5 = nn.Linear(hidden_dim, hidden_dim)
+        self.linear6 = nn.Linear(hidden_dim, 1)
+
+        self.apply(weights_init_)
+
+    def forward(self, state, action):
+        obs_feat = self.obs_head(state[:, 0])
+        goal_feat = self.goal_head(state[:, 1])
+        xu = torch.cat([obs_feat, goal_feat, action], 1)
+
+        x1 = F.relu(self.linear1(xu))
+        x1 = F.relu(self.linear2(x1))
+        x1 = self.linear3(x1)
+
+        x2 = F.relu(self.linear4(xu))
+        x2 = F.relu(self.linear5(x2))
+        x2 = self.linear6(x2)
+        return x1, x2
+
+
+class OldQNetwork(nn.Module):
+    def __init__(self, num_inputs, num_actions, hidden_dim):
+        super(OldQNetwork, self).__init__()
 
         # Q1 architecture
         self.linear1 = nn.Linear(num_inputs + num_actions, hidden_dim)
@@ -62,10 +113,13 @@ class QNetwork(nn.Module):
 
 
 class GaussianPolicy(nn.Module):
-    def __init__(self, num_inputs, num_actions, hidden_dim, action_space=None):
+    def __init__(self, img_size, num_inputs, num_actions, hidden_dim,
+            action_space=None):
         super(GaussianPolicy, self).__init__()
+        self.obs_head = SkewFitHead(img_size, num_inputs)
+        self.goal_head = SkewFitHead(img_size, num_inputs)
         
-        self.linear1 = nn.Linear(num_inputs, hidden_dim)
+        self.linear1 = nn.Linear(num_inputs * 2, hidden_dim)
         self.linear2 = nn.Linear(hidden_dim, hidden_dim)
 
         self.mean_linear = nn.Linear(hidden_dim, num_actions)
@@ -84,7 +138,10 @@ class GaussianPolicy(nn.Module):
                 (action_space.high + action_space.low) / 2.)
 
     def forward(self, state):
-        x = F.relu(self.linear1(state))
+        obs_feat = self.obs_head(state[:, 0])
+        goal_feat = self.goal_head(state[:, 1])
+        xu = torch.cat([obs_feat, goal_feat], 1)
+        x = F.relu(self.linear1(xu))
         x = F.relu(self.linear2(x))
         mean = self.mean_linear(x)
         log_std = self.log_std_linear(x)

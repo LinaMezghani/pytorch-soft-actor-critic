@@ -11,6 +11,7 @@ class MyCustomPush(gym.core.Wrapper):
     def __init__(self, env):
         super().__init__(env)
         self._max_episode_steps = self.env._max_episode_steps
+        self.imshape = (3, self.imsize, self.imsize)
 
     def step(self, action):
         obs, reward, done, info = super().step(action)
@@ -19,7 +20,17 @@ class MyCustomPush(gym.core.Wrapper):
         done = done or success
         info['dist_to_goal'] = info['puck_distance'] if done else 0.
         info['success'] = success
-        return obs, reward, done, info
+        return self.reshape_obs(obs), reward, done, info
+
+    def reset(self):
+        obs = super().reset()
+        return self.reshape_obs(obs)
+
+    def reshape_obs(self, obs):
+        for x in ['observation', 'desired_goal']:
+            obs[x] = obs[x].astype(int).reshape(self.imshape)
+            obs[x] = np.flip(obs[x], axis=2).copy().transpose(0, 2, 1)
+        return obs
     
 def make_sawyer_push_env():
     multiworld.register_all_envs()
