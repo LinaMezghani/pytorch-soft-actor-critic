@@ -24,8 +24,8 @@ class ReplayMemory:
     def __len__(self):
         return len(self.buffer)
 
-    def save_buffer(self, logs_dir, epoch, return_path=False):
-        save_path = os.path.join(logs_dir, f"replay_buffer.pkl")
+    def save_buffer(self, logs_dir, return_path=False):
+        save_path = os.path.join(logs_dir, "replay_buffer.pkl")
         print('Saving buffer to {}'.format(save_path))
 
         with open(save_path, 'wb') as f:

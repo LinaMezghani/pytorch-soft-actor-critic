@@ -7,7 +7,7 @@ from model import GaussianPolicy, QNetwork, DeterministicPolicy
 
 
 class SAC(object):
-    def __init__(self, img_size, num_inputs, action_space, args):
+    def __init__(self, num_inputs, action_space, args):
 
         self.gamma = args.gamma
         self.tau = args.tau
@@ -19,32 +19,34 @@ class SAC(object):
 
         self.device = torch.device("cuda" if args.cuda else "cpu")
 
-        self.critic = QNetwork(img_size, num_inputs, action_space.shape[0],
-                args.hidden_size).to(device=self.device)
+        self.critic = QNetwork(args.obs, args.imsize, num_inputs,
+                action_space.shape[0], args.hidden_size).to(device=self.device)
         self.critic_optim = Adam(self.critic.parameters(), lr=args.lr)
 
-        self.critic_target = QNetwork(img_size, num_inputs, action_space.shape[0],
-                args.hidden_size).to(self.device)
+        self.critic_target = QNetwork(args.obs, args.imsize, num_inputs,
+                action_space.shape[0], args.hidden_size).to(device=self.device)
         hard_update(self.critic_target, self.critic)
 
         if self.policy_type == "Gaussian":
             # Target Entropy = −dim(A) (e.g. , -6 for HalfCheetah-v2) as given in the paper
             if self.auto_entropy_tuning is True:
                 self.target_entropy = -torch.prod(torch.Tensor(action_space.shape).to(self.device)).item()
-                self.log_alpha = torch.zeros(1, requires_grad=True, device=self.device)
+                self.log_alpha = torch.zeros(1, requires_grad=True,
+                        device=self.device)
                 self.alpha_optim = Adam([self.log_alpha], lr=args.lr)
 
-            self.policy = GaussianPolicy(img_size, num_inputs,
+            self.policy = GaussianPolicy(args.obs, args.imsize, num_inputs,
                     action_space.shape[0], args.hidden_size,
                     action_space).to(self.device)
-            self.policy_optim = Adam(self.policy.parameters(), lr=args.lr)
 
         else:
             self.alpha = 0
             self.auto_entropy_tuning = False
-            self.policy = DeterministicPolicy(num_inputs, action_space.shape[0],
-                    args.hidden_size, action_space).to(self.device)
-            self.policy_optim = Adam(self.policy.parameters(), lr=args.lr)
+            self.policy = DeterministicPolicy(args.obs, args.imsize,
+                    num_inputs, action_space.shape[0], args.hidden_size,
+                    action_space).to(self.device)
+
+        self.policy_optim = Adam(self.policy.parameters(), lr=args.lr)
 
     def select_action(self, state, evaluate=False):
         state = torch.FloatTensor(state).to(self.device).unsqueeze(0)
@@ -114,20 +116,22 @@ class SAC(object):
         if updates % self.target_update_interval == 0:
             soft_update(self.critic_target, self.critic, self.tau)
 
-        return qf1_loss.item(), qf2_loss.item(), policy_loss.item(), alpha_loss.item(), alpha_tlogs.item()
+        return (qf1_loss.item(), qf2_loss.item(), policy_loss.item(),
+                alpha_loss.item(), alpha_tlogs.item())
 
     # Save model parameters
-    def save_checkpoint(self, env_name, suffix="", ckpt_path=None):
-        if not os.path.exists('checkpoints/'):
-            os.makedirs('checkpoints/')
-        if ckpt_path is None:
-            ckpt_path = "checkpoints/sac_checkpoint_{}_{}".format(env_name, suffix)
-        print('Saving models to {}'.format(ckpt_path))
+    def save_checkpoint(self, logs_dir, total_numsteps):
+        save_dir = os.path.join(logs_dir, 'policy_ckpt')
+        if not os.path.exists(save_dir):
+            os.makedirs(save_dir)
+        save_path = os.path.join(save_dir, f'checkpoint_{total_numsteps}.pth')
+        print('Saving models to {}'.format(save_path))
         torch.save({'policy_state_dict': self.policy.state_dict(),
                     'critic_state_dict': self.critic.state_dict(),
                     'critic_target_state_dict': self.critic_target.state_dict(),
                     'critic_optimizer_state_dict': self.critic_optim.state_dict(),
-                    'policy_optimizer_state_dict': self.policy_optim.state_dict()}, ckpt_path)
+                    'policy_optimizer_state_dict': self.policy_optim.state_dict()},
+                    save_path)
 
     # Load model parameters
     def load_checkpoint(self, ckpt_path, evaluate=False):
@@ -148,4 +152,3 @@ class SAC(object):
                 self.policy.train()
                 self.critic.train()
                 self.critic_target.train()
-

@@ -14,21 +14,19 @@ from replay_memory import ReplayMemory
 from envs import make_sawyer_push_env
 
 def get_exp_name(args):
-    exp_name = '{}_SAC_{}_alpha-{}_{}'.format(
+    exp_name = '{}_SAC_{}_{}_alpha-{}_{}'.format(
             datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S"),
             args.env_name,
+            args.obs,
             "auto" if args.auto_entropy_tuning else args.alpha,
             args.suffix,
     )
     return exp_name
 
-def process_obs(obs):
-    return np.stack((obs['observation'], obs['desired_goal'])).astype('uint8')
-
 def main(args, exp_name):
     logs_dir = f'/checkpoint/linamezghani/sac_logs/{exp_name}'
 
-    env = make_sawyer_push_env()
+    env = make_sawyer_push_env(args)
     env.seed(args.seed)
     env.action_space.seed(args.seed)
 
@@ -36,7 +34,7 @@ def main(args, exp_name):
     np.random.seed(args.seed)
 
     # Agent
-    agent = SAC(48, 4, env.action_space, args)
+    agent = SAC(4, env.action_space, args)
 
     #Tensorboard
     writer = SummaryWriter(logs_dir)
@@ -61,7 +59,7 @@ def main(args, exp_name):
         episode_reward = 0
         done = False
         state = env.reset()
-        obs = process_obs(state)
+        obs = env.process_obs(state)
         while not done:
             if args.start_steps > total_numsteps:
                 action = env.action_space.sample()  # Sample random action
@@ -81,7 +79,7 @@ def main(args, exp_name):
                     updates += 1
 
             next_state, reward, done, info = env.step(action) # Step
-            next_obs = process_obs(next_state)
+            next_obs = env.process_obs(next_state)
             episode_steps += 1
             episode_reward += reward
 
@@ -127,10 +125,10 @@ def main(args, exp_name):
             prev_log_step = total_numsteps
 
         if total_numsteps - prev_save_step > args.save_interval:
-            save_file = memory.save_buffer(logs_dir, total_numsteps,
-                    return_path=True)
+            save_file = memory.save_buffer(logs_dir, return_path=True)
             writer.add_scalar('train/replay_buffer_size',
                     os.path.getsize(save_file), total_numsteps)
+            agent.save_checkpoint(logs_dir, total_numsteps)
             prev_save_step = total_numsteps
 
         if i_episode % args.eval_interval == 0 and args.eval is True:
@@ -141,7 +139,7 @@ def main(args, exp_name):
                 episode_reward = 0
                 done = False
                 while not done:
-                    action = agent.select_action(process_obs(state), evaluate=True)
+                    action = agent.select_action(env.process_obs(state), evaluate=True)
 
                     next_state, reward, done, info = env.step(action)
                     episode_reward += reward
@@ -170,8 +168,12 @@ if __name__ == "__main__":
     parser.add_argument('--suffix', default="", help='exp suffix (default: "")')
     parser.add_argument('--policy', default="Gaussian",
                         help='Policy Type: Gaussian | Deterministic (default: Gaussian)')
+    parser.add_argument('--obs', default="rgb",
+                        help='Observation Type: rgb | vec (default: rgb)')
     parser.add_argument('--eval', type=bool, default=True,
                         help='Evaluates a policy every eval-interval episodes (default: True)')
+    parser.add_argument('--imsize', type=int, default=48, metavar='N',
+                        help='image size (default: 48)')
     parser.add_argument('--eval-interval', type=int, default=100, metavar='N',
                         help='perform eval every x episodes (default: 100)')
     parser.add_argument('--log-interval', type=int, default=1000, metavar='N',
@@ -212,7 +214,16 @@ if __name__ == "__main__":
                         help='run on CUDA (default: False)')
     parser.add_argument('--local', action="store_true",
                         help='run locally (default: False)')
+    parser.add_argument('--debug', action="store_true",
+                        help='debug mode (default: False)')
     args = parser.parse_args()
+
+    if args.debug:
+        args.local = True
+        args.log_interval = 50
+        args.save_interval = 200
+        args.eval_interval = 5
+        args.num_eval_episodes = 10
 
     exp_name = get_exp_name(args)
     print(exp_name)

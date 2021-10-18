@@ -50,10 +50,12 @@ class SkewFitHead(nn.Module):
         return self.net(state)
 
 class QNetwork(nn.Module):
-    def __init__(self, img_size, num_inputs, num_actions, hidden_dim):
+    def __init__(self, obs_type, img_size, num_inputs, num_actions, hidden_dim):
         super(QNetwork, self).__init__()
-        self.obs_head = SkewFitHead(img_size, num_inputs)
-        self.goal_head = SkewFitHead(img_size, num_inputs)
+        self.obs_type = obs_type
+        if self.obs_type == 'rgb':
+            self.obs_head = SkewFitHead(img_size, num_inputs)
+            self.goal_head = SkewFitHead(img_size, num_inputs)
 
         # Q1 architecture
         self.linear1 = nn.Linear(num_inputs * 2 + num_actions, hidden_dim)
@@ -68,39 +70,12 @@ class QNetwork(nn.Module):
         self.apply(weights_init_)
 
     def forward(self, state, action):
-        obs_feat = self.obs_head(state[:, 0])
-        goal_feat = self.goal_head(state[:, 1])
-        xu = torch.cat([obs_feat, goal_feat, action], 1)
-
-        x1 = F.relu(self.linear1(xu))
-        x1 = F.relu(self.linear2(x1))
-        x1 = self.linear3(x1)
-
-        x2 = F.relu(self.linear4(xu))
-        x2 = F.relu(self.linear5(x2))
-        x2 = self.linear6(x2)
-        return x1, x2
-
-
-class OldQNetwork(nn.Module):
-    def __init__(self, num_inputs, num_actions, hidden_dim):
-        super(OldQNetwork, self).__init__()
-
-        # Q1 architecture
-        self.linear1 = nn.Linear(num_inputs + num_actions, hidden_dim)
-        self.linear2 = nn.Linear(hidden_dim, hidden_dim)
-        self.linear3 = nn.Linear(hidden_dim, 1)
-
-        # Q2 architecture
-        self.linear4 = nn.Linear(num_inputs + num_actions, hidden_dim)
-        self.linear5 = nn.Linear(hidden_dim, hidden_dim)
-        self.linear6 = nn.Linear(hidden_dim, 1)
-
-        self.apply(weights_init_)
-
-    def forward(self, state, action):
+        if self.obs_type == 'rgb':
+            obs_feat = self.obs_head(state[:, 0])
+            goal_feat = self.goal_head(state[:, 1])
+            state = torch.cat([obs_feat, goal_feat], 1)
         xu = torch.cat([state, action], 1)
-        
+
         x1 = F.relu(self.linear1(xu))
         x1 = F.relu(self.linear2(x1))
         x1 = self.linear3(x1)
@@ -108,17 +83,18 @@ class OldQNetwork(nn.Module):
         x2 = F.relu(self.linear4(xu))
         x2 = F.relu(self.linear5(x2))
         x2 = self.linear6(x2)
-
         return x1, x2
 
 
 class GaussianPolicy(nn.Module):
-    def __init__(self, img_size, num_inputs, num_actions, hidden_dim,
+    def __init__(self, obs_type, img_size, num_inputs, num_actions, hidden_dim,
             action_space=None):
         super(GaussianPolicy, self).__init__()
-        self.obs_head = SkewFitHead(img_size, num_inputs)
-        self.goal_head = SkewFitHead(img_size, num_inputs)
-        
+        self.obs_type = obs_type
+        if self.obs_type == 'rgb':
+            self.obs_head = SkewFitHead(img_size, num_inputs)
+            self.goal_head = SkewFitHead(img_size, num_inputs)
+
         self.linear1 = nn.Linear(num_inputs * 2, hidden_dim)
         self.linear2 = nn.Linear(hidden_dim, hidden_dim)
 
@@ -138,10 +114,12 @@ class GaussianPolicy(nn.Module):
                 (action_space.high + action_space.low) / 2.)
 
     def forward(self, state):
-        obs_feat = self.obs_head(state[:, 0])
-        goal_feat = self.goal_head(state[:, 1])
-        xu = torch.cat([obs_feat, goal_feat], 1)
-        x = F.relu(self.linear1(xu))
+        if self.obs_type == 'rgb':
+            obs_feat = self.obs_head(state[:, 0])
+            goal_feat = self.goal_head(state[:, 1])
+            state = torch.cat([obs_feat, goal_feat], 1)
+
+        x = F.relu(self.linear1(state))
         x = F.relu(self.linear2(x))
         mean = self.mean_linear(x)
         log_std = self.log_std_linear(x)
@@ -169,9 +147,15 @@ class GaussianPolicy(nn.Module):
 
 
 class DeterministicPolicy(nn.Module):
-    def __init__(self, num_inputs, num_actions, hidden_dim, action_space=None):
+    def __init__(self, obs_type, img_size, num_inputs, num_actions, hidden_dim,
+            action_space=None):
         super(DeterministicPolicy, self).__init__()
-        self.linear1 = nn.Linear(num_inputs, hidden_dim)
+        self.obs_type = obs_type
+        if self.obs_type == 'rgb':
+            self.obs_head = SkewFitHead(img_size, num_inputs)
+            self.goal_head = SkewFitHead(img_size, num_inputs)
+
+        self.linear1 = nn.Linear(num_inputs * 2, hidden_dim)
         self.linear2 = nn.Linear(hidden_dim, hidden_dim)
 
         self.mean = nn.Linear(hidden_dim, num_actions)
@@ -190,6 +174,11 @@ class DeterministicPolicy(nn.Module):
                 (action_space.high + action_space.low) / 2.)
 
     def forward(self, state):
+        if self.obs_type == 'rgb':
+            obs_feat = self.obs_head(state[:, 0])
+            goal_feat = self.goal_head(state[:, 1])
+            state = torch.cat([obs_feat, goal_feat], 1)
+
         x = F.relu(self.linear1(state))
         x = F.relu(self.linear2(x))
         mean = torch.tanh(self.mean(x)) * self.action_scale + self.action_bias

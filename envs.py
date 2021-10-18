@@ -8,8 +8,9 @@ from multiworld.core.image_env import ImageEnv
 from multiworld.envs.mujoco.cameras import sawyer_init_camera_zoomed_in
 
 class MyCustomPush(gym.core.Wrapper):
-    def __init__(self, env):
+    def __init__(self, env, obs_type):
         super().__init__(env)
+        self.obs_type = obs_type
         self._max_episode_steps = self.env._max_episode_steps
 
     def step(self, action):
@@ -20,15 +21,25 @@ class MyCustomPush(gym.core.Wrapper):
         info['dist_to_goal'] = info['puck_distance'] if done else 0.
         info['success'] = success
         return obs, reward, done, info
+
+    def process_obs(self, obs):
+        if self.obs_type == 'rgb':
+            obs = np.stack((obs['observation'], obs['desired_goal']))
+            return obs.astype('uint8')
+        elif self.obs_type == 'vec':
+            return np.concatenate((obs['state_observation'],
+                obs['state_desired_goal']))
     
-def make_sawyer_push_env():
+def make_sawyer_push_env(args):
     multiworld.register_all_envs()
     env = gym.make('SawyerPushNIPSEasy-v0')
-    presampled_goals_path = 'data/random_goals/pusher_goals_500.npy'
-    presampled_goals = np.load(presampled_goals_path, allow_pickle=True)
-    presampled_goals = presampled_goals.tolist()
-    env = ImageEnv(env, imsize=48, presampled_goals=presampled_goals, 
-            init_camera=sawyer_init_camera_zoomed_in, transpose=True)#, run_update_info=False)
+    if args.obs == 'rgb':
+        presampled_goals_path = 'data/random_goals/pusher_goals_500.npy'
+        presampled_goals = np.load(presampled_goals_path, allow_pickle=True)
+        presampled_goals = presampled_goals.tolist()
+        env = ImageEnv(env, imsize=args.imsize,
+                presampled_goals=presampled_goals,
+                init_camera=sawyer_init_camera_zoomed_in, transpose=True)
     env = TimeLimit(env, max_episode_steps=50)
-    env = MyCustomPush(env)
+    env = MyCustomPush(env, obs_type=args.obs)
     return env
