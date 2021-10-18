@@ -1,3 +1,5 @@
+import os
+import pickle
 import random
 import numpy as np
 
@@ -22,16 +24,14 @@ class ReplayMemory:
     def __len__(self):
         return len(self.buffer)
 
-    def save_buffer(self, env_name, suffix="", save_path=None):
-        if not os.path.exists('checkpoints/'):
-            os.makedirs('checkpoints/')
-
-        if save_path is None:
-            save_path = "checkpoints/sac_buffer_{}_{}".format(env_name, suffix)
+    def save_buffer(self, logs_dir, epoch, return_path=False):
+        save_path = os.path.join(logs_dir, f"replay_buffer.pkl")
         print('Saving buffer to {}'.format(save_path))
 
         with open(save_path, 'wb') as f:
             pickle.dump(self.buffer, f)
+        if return_path:
+            return save_path
 
     def load_buffer(self, save_path):
         print('Loading buffer from {}'.format(save_path))

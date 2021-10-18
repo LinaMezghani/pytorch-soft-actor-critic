@@ -15,7 +15,7 @@ class SAC(object):
 
         self.policy_type = args.policy
         self.target_update_interval = args.target_update_interval
-        self.automatic_entropy_tuning = args.automatic_entropy_tuning
+        self.auto_entropy_tuning = args.auto_entropy_tuning
 
         self.device = torch.device("cuda" if args.cuda else "cpu")
 
@@ -29,7 +29,7 @@ class SAC(object):
 
         if self.policy_type == "Gaussian":
             # Target Entropy = −dim(A) (e.g. , -6 for HalfCheetah-v2) as given in the paper
-            if self.automatic_entropy_tuning is True:
+            if self.auto_entropy_tuning is True:
                 self.target_entropy = -torch.prod(torch.Tensor(action_space.shape).to(self.device)).item()
                 self.log_alpha = torch.zeros(1, requires_grad=True, device=self.device)
                 self.alpha_optim = Adam([self.log_alpha], lr=args.lr)
@@ -41,7 +41,7 @@ class SAC(object):
 
         else:
             self.alpha = 0
-            self.automatic_entropy_tuning = False
+            self.auto_entropy_tuning = False
             self.policy = DeterministicPolicy(num_inputs, action_space.shape[0],
                     args.hidden_size, action_space).to(self.device)
             self.policy_optim = Adam(self.policy.parameters(), lr=args.lr)
@@ -97,7 +97,7 @@ class SAC(object):
         policy_loss.backward()
         self.policy_optim.step()
 
-        if self.automatic_entropy_tuning:
+        if self.auto_entropy_tuning:
             alpha_loss = -(self.log_alpha * (log_pi + self.target_entropy).detach()).mean()
 
             self.alpha_optim.zero_grad()
