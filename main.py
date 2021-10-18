@@ -14,11 +14,12 @@ from replay_memory import ReplayMemory
 from envs import make_sawyer_push_env
 
 def get_exp_name(args):
-    exp_name = '{}_SAC_{}_{}_alpha-{}_{}'.format(
+    exp_name = '{}_SAC_{}_{}_alpha-{}_st{}_{}'.format(
             datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S"),
             args.env_name,
             args.obs,
             "auto" if args.auto_entropy_tuning else args.alpha,
+            args.success_thresh,
             args.suffix,
     )
     return exp_name
@@ -34,7 +35,7 @@ def main(args, exp_name):
     np.random.seed(args.seed)
 
     # Agent
-    agent = SAC(4, env.action_space, args)
+    agent = SAC(env.get_num_inputs(), env.action_space, args)
 
     #Tensorboard
     writer = SummaryWriter(logs_dir)
@@ -59,12 +60,11 @@ def main(args, exp_name):
         episode_reward = 0
         done = False
         state = env.reset()
-        obs = env.process_obs(state)
         while not done:
             if args.start_steps > total_numsteps:
                 action = env.action_space.sample()  # Sample random action
             else:
-                action = agent.select_action(obs)  # Sample action from policy
+                action = agent.select_action(state)  # Sample action from policy
 
             if len(memory) > args.batch_size:
                 # Number of updates per step in environment
@@ -79,7 +79,6 @@ def main(args, exp_name):
                     updates += 1
 
             next_state, reward, done, info = env.step(action) # Step
-            next_obs = env.process_obs(next_state)
             episode_steps += 1
             episode_reward += reward
 
@@ -87,7 +86,7 @@ def main(args, exp_name):
             # (https://github.com/openai/spinningup/blob/master/spinup/algos/sac/sac.py)
             mask = 1 if episode_steps == env._max_episode_steps else float(not done)
 
-            memory.push(obs, action, reward, next_obs, mask) # Append transition to memory
+            memory.push(state, action, reward, next_state, mask) # Append transition to memory
 
             state = next_state
 
@@ -139,7 +138,7 @@ def main(args, exp_name):
                 episode_reward = 0
                 done = False
                 while not done:
-                    action = agent.select_action(env.process_obs(state), evaluate=True)
+                    action = agent.select_action(state, evaluate=True)
 
                     next_state, reward, done, info = env.step(action)
                     episode_reward += reward
@@ -192,8 +191,11 @@ if __name__ == "__main__":
                         help='Temperature parameter α determines the relative\
                                 importance of the entropy term against the\
                                 reward (default: 0.05)')
+    parser.add_argument('--success-thresh', type=float, default=0.03,
+                        metavar='G', help='success threshold')
     parser.add_argument('--auto_entropy_tuning', type=bool, default=False,
-            metavar='G', help='Automaically adjust α (default: False)')
+                        metavar='G',
+                        help='Automaically adjust α (default: False)')
     parser.add_argument('--seed', type=int, default=123456, metavar='N',
                         help='random seed (default: 123456)')
     parser.add_argument('--batch_size', type=int, default=1024, metavar='N',

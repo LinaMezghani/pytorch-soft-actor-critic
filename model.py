@@ -54,16 +54,16 @@ class QNetwork(nn.Module):
         super(QNetwork, self).__init__()
         self.obs_type = obs_type
         if self.obs_type == 'rgb':
-            self.obs_head = SkewFitHead(img_size, num_inputs)
-            self.goal_head = SkewFitHead(img_size, num_inputs)
+            self.obs_head = SkewFitHead(img_size, num_inputs//2)
+            self.goal_head = SkewFitHead(img_size, num_inputs//2)
 
         # Q1 architecture
-        self.linear1 = nn.Linear(num_inputs * 2 + num_actions, hidden_dim)
+        self.linear1 = nn.Linear(num_inputs + num_actions, hidden_dim)
         self.linear2 = nn.Linear(hidden_dim, hidden_dim)
         self.linear3 = nn.Linear(hidden_dim, 1)
 
         # Q2 architecture
-        self.linear4 = nn.Linear(num_inputs * 2 + num_actions, hidden_dim)
+        self.linear4 = nn.Linear(num_inputs + num_actions, hidden_dim)
         self.linear5 = nn.Linear(hidden_dim, hidden_dim)
         self.linear6 = nn.Linear(hidden_dim, 1)
 
@@ -92,10 +92,10 @@ class GaussianPolicy(nn.Module):
         super(GaussianPolicy, self).__init__()
         self.obs_type = obs_type
         if self.obs_type == 'rgb':
-            self.obs_head = SkewFitHead(img_size, num_inputs)
-            self.goal_head = SkewFitHead(img_size, num_inputs)
+            self.obs_head = SkewFitHead(img_size, num_inputs//2)
+            self.goal_head = SkewFitHead(img_size, num_inputs//2)
 
-        self.linear1 = nn.Linear(num_inputs * 2, hidden_dim)
+        self.linear1 = nn.Linear(num_inputs, hidden_dim)
         self.linear2 = nn.Linear(hidden_dim, hidden_dim)
 
         self.mean_linear = nn.Linear(hidden_dim, num_actions)
@@ -152,10 +152,10 @@ class DeterministicPolicy(nn.Module):
         super(DeterministicPolicy, self).__init__()
         self.obs_type = obs_type
         if self.obs_type == 'rgb':
-            self.obs_head = SkewFitHead(img_size, num_inputs)
-            self.goal_head = SkewFitHead(img_size, num_inputs)
+            self.obs_head = SkewFitHead(img_size, num_inputs//2)
+            self.goal_head = SkewFitHead(img_size, num_inputs//2)
 
-        self.linear1 = nn.Linear(num_inputs * 2, hidden_dim)
+        self.linear1 = nn.Linear(num_inputs, hidden_dim)
         self.linear2 = nn.Linear(hidden_dim, hidden_dim)
 
         self.mean = nn.Linear(hidden_dim, num_actions)
